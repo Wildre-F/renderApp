@@ -6,8 +6,6 @@ import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-import shap
 import joblib
 
 
@@ -23,7 +21,8 @@ MODEL_FEATURES = (
 
 FEATURE_MEANS = pd.Series(scaler.mean_, index=MODEL_FEATURES)
 
-explainer = shap.TreeExplainer(model)
+# Feature importances from XGBoost (replaces SHAP)
+FEATURE_IMPORTANCES = pd.Series(model.feature_importances_, index=MODEL_FEATURES)
 
 
 # RISK CONFIG — colour + description per class
@@ -33,6 +32,16 @@ RISK_CONFIG = {
     "Gestational":  {"color": "#6f42c1", "bg": "#e8d5f5", "icon": "🤰", "desc": "Gestational diabetes pattern detected. Note: limited training data for this class — treat with caution."},
     "Type 1":       {"color": "#dc3545", "bg": "#f8d7da", "icon": "🔴", "desc": "Type 1 diabetes indicators detected. Note: limited training data for this class — treat with caution."},
     "Type 2":       {"color": "#c82333", "bg": "#f8d7da", "icon": "🔴", "desc": "Type 2 diabetes indicators detected. Medical review advised."},
+}
+
+NAME_MAP = {
+    "Column1": "Age", "bmi": "BMI", "glucose_fasting": "Fasting Glucose",
+    "hba1c": "HbA1c", "systolic_bp": "Systolic BP",
+    "physical_activity_minutes_per_week": "Physical Activity",
+    "alcohol_consumption_per_week": "Alcohol Consumption",
+    "sleep_hours_per_day": "Sleep Hours", "diabetes_risk_score": "Risk Score",
+    "glucose_postprandial": "Postprandial Glucose", "insulin_level": "Insulin Level",
+    "waist_to_hip_ratio": "Waist-Hip Ratio",
 }
 
 
@@ -171,8 +180,8 @@ app.layout = html.Div(style={"backgroundColor": "#f7f8fc", "minHeight": "100vh",
         # RESULT + CONFIDENCE
         html.Div(id="result-card"),
 
-        # SHAP CHART
-        dcc.Graph(id="shap-plot", style={"marginTop": "8px"}),
+        # FEATURE IMPORTANCE CHART
+        dcc.Graph(id="importance-plot", style={"marginTop": "8px"}),
 
         # FOOTER
         html.Hr(style={"borderColor": "#e9ecef", "marginTop": "40px"}),
@@ -187,7 +196,7 @@ app.layout = html.Div(style={"backgroundColor": "#f7f8fc", "minHeight": "100vh",
 
 @app.callback(
     Output("result-card", "children"),
-    Output("shap-plot", "figure"),
+    Output("importance-plot", "figure"),
     Input("predict-btn", "n_clicks"),
     State("age", "value"),
     State("gender", "value"),
@@ -237,7 +246,6 @@ def predict(n_clicks, age, gender, ethnicity,
         prediction  = model.predict(X_scaled)[0]
         label       = le.inverse_transform([prediction])[0]
         proba       = model.predict_proba(X_scaled)[0]
-        confidence  = round(proba[prediction] * 100, 1)
         cfg         = RISK_CONFIG.get(label, {"color": "#6c757d", "bg": "#f8f9fa", "icon": "❓", "desc": ""})
 
         # RESULT CARD
@@ -272,55 +280,34 @@ def predict(n_clicks, age, gender, ethnicity,
             dbc.Row(prob_rows)
         ])
 
-        # SHAP
-        shap_values = explainer.shap_values(X_scaled)
-        if isinstance(shap_values, np.ndarray) and shap_values.ndim == 3:
-            shap_vals = shap_values[0, :, prediction]
-        elif isinstance(shap_values, list):
-            shap_vals = shap_values[prediction][0]
-        else:
-            shap_vals = shap_values[0]
-
-        shap_vals = np.array(shap_vals).flatten()
-        shap_df = pd.DataFrame({
-            "Feature": MODEL_FEATURES,
-            "Impact":  shap_vals
-        }).sort_values(by="Impact", key=abs, ascending=False).head(10)
-
-        # Friendly feature name mapping
-        name_map = {
-            "Column1": "Age", "bmi": "BMI", "glucose_fasting": "Fasting Glucose",
-            "hba1c": "HbA1c", "systolic_bp": "Systolic BP",
-            "physical_activity_minutes_per_week": "Physical Activity",
-            "alcohol_consumption_per_week": "Alcohol Consumption",
-            "sleep_hours_per_day": "Sleep Hours", "diabetes_risk_score": "Risk Score",
-            "glucose_postprandial": "Postprandial Glucose", "insulin_level": "Insulin Level",
-            "waist_to_hip_ratio": "Waist-Hip Ratio",
-        }
-        shap_df["Feature"] = shap_df["Feature"].apply(lambda x: name_map.get(x, x.replace("_", " ").title()))
-        shap_df["Direction"] = shap_df["Impact"].apply(lambda v: "Increases Risk" if v > 0 else "Decreases Risk")
+        # FEATURE IMPORTANCE (top 10)
+        imp_df = (
+            FEATURE_IMPORTANCES
+            .sort_values(ascending=False)
+            .head(10)
+            .reset_index()
+        )
+        imp_df.columns = ["Feature", "Importance"]
+        imp_df["Feature"] = imp_df["Feature"].apply(lambda x: NAME_MAP.get(x, x.replace("_", " ").title()))
 
         fig = px.bar(
-            shap_df,
-            x="Impact",
+            imp_df,
+            x="Importance",
             y="Feature",
             orientation="h",
-            color="Direction",
-            color_discrete_map={"Increases Risk": "#dc3545", "Decreases Risk": "#28a745"},
-            title=f"Feature Impact on '{label}' Prediction",
-            labels={"Impact": "SHAP Value (impact on model output)", "Feature": ""}
+            title="Top 10 Most Important Features",
+            labels={"Importance": "Feature Importance", "Feature": ""}
         )
+        fig.update_traces(marker_color="#1a73e8")
         fig.update_layout(
             yaxis=dict(autorange="reversed"),
             template="plotly_white",
             height=420,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             title_font_size=14,
             margin=dict(l=10, r=10, t=50, b=10),
             paper_bgcolor="white",
             plot_bgcolor="white",
         )
-        fig.add_vline(x=0, line_width=1, line_color="#dee2e6")
 
         return result_card, fig
 
