@@ -12,7 +12,7 @@ import joblib
 
 
 # LOAD MODEL + FEATURES
-model  = joblib.load("artifacts/random_forest_model.pkl")
+model  = joblib.load("artifacts/xgboost_model.pkl")
 scaler = joblib.load("artifacts/scaler.pkl")
 le     = joblib.load("artifacts/label_encoder.pkl")
 
@@ -88,7 +88,7 @@ app.layout = html.Div(style={"backgroundColor": "#f7f8fc", "minHeight": "100vh",
         html.Span("🩺", style={"fontSize": "1.8rem"}),
         html.Div([
             html.H4("Diabetes Risk Decision Support", style={"margin": 0, "color": "white", "fontWeight": "700"}),
-            html.P("BC Analytics · Random Forest Classifier · 91.5% Accuracy",
+            html.P("BC Analytics · XGBoost Classifier",
                    style={"margin": 0, "color": "rgba(255,255,255,0.7)", "fontSize": "0.8rem"})
         ])
     ]),
